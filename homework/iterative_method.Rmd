@@ -59,6 +59,7 @@ ar_precision_matvec <- function(v, auto_corr) {
 ar_eig <- eigs_sym(
   ar_precision_matvec,
   args = auto_corr,
+  n = sqrt(ar_length),
   k = 10,
   opts = list(
     ncv = 100, # Spectrum distribution of AR-1 process is not very spread out on the extreme ends and is actually a hard case for Lanczos. So it helps to have more Lanczos vectors than the default for faster convergence.
