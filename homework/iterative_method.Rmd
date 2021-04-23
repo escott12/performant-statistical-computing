@@ -38,16 +38,22 @@ auto_corr <- .9 # Corresponds to `\phi` above
 ar_precision_matvec <- function(v, auto_corr) {
   # Fill in: note that you can vectorize the calculation and do *not* need a for-loop.
   # (Hint: how would you efficiently carry out a matrix-vector operation if the matrix has non-zero entries only along the sub or super diagonal?)
-  # Note: I'm not sure how to write this operation more efficiently than A %*% v
 
-  # Store precision matrix
-  prec_mat <- diag(x = 1 + auto_corr^2, nrow = sqrt(ar_length), ncol = sqrt(ar_length))
-  prec_mat[c(1, ar_length)] <- 1
-  prec_mat[abs(row(prec_mat) - col(prec_mat)) == 1] <- -auto_corr
-  prec_mat <- 1 / (1 - auto_corr^2) * prec_mat
+  # Dimensions of square matrix
+  n <- sqrt(ar_length)
 
-  # Calculate Sigma_inv %*% v
-  prec_mat %*% v
+  # Vectorize
+  d <- c(1, rep(1 + auto_corr^2, n - 2), 1)
+  d_sup <- rep(-auto_corr, n - 1)
+  d_sub <- rep(-auto_corr, n - 1)
+
+  # Calculate 3 element-wise products
+  vec1 <- d * v
+  vec2 <- c(d_sup * v[-1], 0)
+  vec3 <- c(0, d_sub * v[-n])
+
+  # Multiply Sigma_inv %*% v
+  1 / (1 - auto_corr^2) * (vec1 + vec2 + vec3)
 }
 
 ar_eig <- eigs_sym(
@@ -82,8 +88,17 @@ eig_vals_Sigma_inv <- eigen(prec_mat)$values
 eig_vecs_Sigma_inv <- eigen(prec_mat)$vectors
 
 head(eig_vals_Sigma)
-tail(1/eig_vals_Sigma_inv)[6:1]
+tail(1 / eig_vals_Sigma_inv)[6:1]
 ```
+
+```{r}
+# Test vectorized multiplication from above
+table(ar_precision_matvec(v = rep(1, 64), auto_corr = 0.9) == prec_mat %*% rep(1,64))
+
+v <- rnorm(64)
+table(ar_precision_matvec(v = v, auto_corr = 0.9) == prec_mat %*% v)
+```
+
 
 **Remark:** 
 For banded matrices, there actually are even more efficient approaches.
