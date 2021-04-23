@@ -1,6 +1,8 @@
 ---
 title: 'Homework: iterative method'
-output: html_notebook
+output:
+  html_document:
+    df_print: paged
 ---
 
 ```{r setup, include = FALSE}
@@ -31,7 +33,7 @@ More generally, a lag-$k$ (non-stationary) auto-regressive process has a _banded
 Implement a fast matrix-vector $\boldsymbol{v} \to \boldsymbol{\Sigma}^{-1} \boldsymbol{v}$ operation, exploiting the structure of the AR-1 precision matrix.
 Then use this function to find the top 10 principal components of $\boldsymbol{\Sigma}$ (not $\boldsymbol{\Sigma}^{-1}$) via Lanczos algorithm provided via `RSpectra::eigs_sym`.
 
-```{r, eval = FALSE}
+```{r}
 ar_length <- 4096
 auto_corr <- .9 # Corresponds to `\phi` above
 
@@ -62,11 +64,35 @@ ar_eig <- eigs_sym(
   n = sqrt(ar_length),
   k = 10,
   opts = list(
-    ncv = 100, # Spectrum distribution of AR-1 process is not very spread out on the extreme ends and is actually a hard case for Lanczos. So it helps to have more Lanczos vectors than the default for faster convergence.
+    ncv = 50, # Spectrum distribution of AR-1 process is not very spread out on the extreme ends and is actually a hard case for Lanczos. So it helps to have more Lanczos vectors than the default for faster convergence.
     maxitr = 10^3, # Cap it just in case
     retvec = TRUE # More efficient to do without eigenvectors when not needed
   ),
 )
+
+# Try to apply eigs_sym to Sigma matrix input (rather than function input) 
+corr_mat <- matrix(data = NA, nrow = sqrt(ar_length), ncol = sqrt(ar_length))
+corr_mat <- auto_corr^(abs(row(corr_mat) - col(corr_mat)))
+ar_eig_matrixA <- eigs_sym(
+  A = corr_mat,
+  n = sqrt(ar_length),
+  k = 10)
+
+# These results match the direct approach from later. Looks like we're not using eigs_sym correctly above to find eigenvalues of Sigma (we're finding eigenvalues of Sigma inverse)
+# If we just want the 10 largest eigenvalues for Sigma, we could get the 10 smallest for Sigma inv and invert them. 
+ar_eig <- eigs_sym(
+  ar_precision_matvec,
+  args = auto_corr,
+  n = sqrt(ar_length),
+  k = 10,
+  opts = list(
+    ncv = 50, # Spectrum distribution of AR-1 process is not very spread out on the extreme ends and is actually a hard case for Lanczos. So it helps to have more Lanczos vectors than the default for faster convergence.
+    maxitr = 10^3, # Cap it just in case
+    retvec = TRUE, # More efficient to do without eigenvectors when not needed
+    which = "SM"
+  ),
+)
+1/ar_eig$values[10:1]
 ```
 
 Now, directly compute the eigen decomposition of $\boldsymbol{\Sigma}$ (not $\boldsymbol{\Sigma}^{-1}$) and compare its output with the principal components and associated variances found via Lancsoz algorithm.
@@ -88,16 +114,16 @@ eig_vecs_Sigma <- eigen(corr_mat)$vectors
 eig_vals_Sigma_inv <- eigen(prec_mat)$values
 eig_vecs_Sigma_inv <- eigen(prec_mat)$vectors
 
-head(eig_vals_Sigma)
-tail(1 / eig_vals_Sigma_inv)[6:1]
+data.frame("direct_sigma" = head(eig_vals_Sigma, n = 10),
+           "Inverted_direct_sigma_inv" = tail(1/eig_vals_Sigma_inv, n = 10)[10:1],
+           "eigs_symm_matrix_form" = ar_eig_matrixA$values[1:10],
+           "eigs_symm_fx_form" = 1/ar_eig$values[10:1])
 ```
 
 ```{r}
 # Test vectorized multiplication from above
-table(ar_precision_matvec(v = rep(1, 64), auto_corr = 0.9) == prec_mat %*% rep(1,64))
-
 v <- rnorm(64)
-table(ar_precision_matvec(v = v, auto_corr = 0.9) == prec_mat %*% v)
+data.frame("fx_output" = ar_precision_matvec(v = v, auto_corr = 0.9), "direct" = prec_mat %*% v)
 ```
 
 
