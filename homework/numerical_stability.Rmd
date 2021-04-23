@@ -1,0 +1,246 @@
+---
+title: 'Homework: numerical linear algebra and stability issues'
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r setup, echo=FALSE}
+required_packages <- c("MASS")
+for (pkg in required_packages) {
+  if (!(pkg %in% rownames(installed.packages()))) {
+    install.packages(pkg)
+  }
+  library(pkg, character.only = TRUE)
+}
+
+source(file.path("..", "R", "colors.R"))
+```
+
+
+# Problem 1: Kriging / Gaussian process regression
+
+## Part 1: Finishing unfinished business from lecture
+
+Execute a command `git grep -n "sq_exp_cov <- function"` from the root directory of the git repository.
+Paste the output below.
+
+```{zsh, eval=FALSE}
+homework/numerical_stability.Rmd:23:Execute a command `git grep -n "sq_exp_cov <- function"` from the root directory of the git repository.
+lecture/finite_prec_and_numerical_stability.Rmd:276:sq_exp_cov <- function(dist, range) {
+lecture/finite_prec_and_numerical_stability.Rmd:303:sq_exp_cov <- function(dist, range) {
+```
+
+The grep output tells you where you can find the (failed) kriging / Gaussian process regression example in the lecture source file.
+Copy the synthetic observation from there (the one defined on the range $[0, 0.4]$ and $[0.6, 1.0]$).
+
+```{r}
+sq_exp_cov <- function(dist, range) {
+  return(exp(-(dist / range)^2))
+}
+
+loc_obs <- c(seq(0, .4, .01), seq(.6, 1, .01))
+n_obs <- length(loc_obs)
+
+set.seed(2021)
+corr_range <- .2
+dist_obs <- as.matrix(dist(loc_obs))
+Sigma_obs <- sq_exp_cov(dist_obs, corr_range)
+y_obs <- mvrnorm(mu = rep(0, n_obs), Sigma = Sigma_obs)
+
+plot(loc_obs, y_obs)
+```
+
+Let's now interpolate the missing values in $(0.4, 0.6)$ for real.
+To this end, we use eigen decomposition / principal component analysis of the GP.
+We can ignore the components with negligible ($\approx 0$) variance in computing $\boldsymbol{\Sigma}_{\textrm{obs}}^{-1} \boldsymbol{y}_{\textrm{obs}}$ since those components will not affect the final results of kriging/interpolation.
+In other words, we approximate $\boldsymbol{\Sigma}_{\textrm{obs}}^{-1}$ with $\sum_{i = 1}^k \lambda_i^{-1} \boldsymbol{u}_i \boldsymbol{u}_i^\intercal$ in computing $\boldsymbol{\Sigma}_{\textrm{obs}}^{-1} \boldsymbol{y}_{\textrm{obs}}$ for a suitably chosen number of principal components $k$.
+Choose $k$ to capture $99.99$\% of variance in $\boldsymbol{y}_{\textrm{obs}} \sim \mathcal{N}(\boldsymbol{0}, \boldsymbol{\Sigma}_{\textrm{obs}})$.
+
+```{r}
+loc_new <- seq(.41, .59, .01)
+n_new <- length(loc_new)
+
+dist_new <- as.matrix(dist(loc_new))
+Sigma_new <- sq_exp_cov(dist_new, corr_range)
+cross_dist <- as.matrix(dist(c(loc_new, loc_obs)))
+cross_dist <- cross_dist[1:n_new, (n_new + 1):(n_new + n_obs)]
+Sigma_cross <- sq_exp_cov(cross_dist, corr_range)
+mean_obs <- rep(0, n_obs)
+mean_new <- rep(0, n_new)
+
+# Store eigenvalues and eigenvectors
+eigs <- eigen(Sigma_obs)
+evals <- eigs$values
+evecs <- eigs$vectors
+
+# Calculate percent variance explained
+pov <- cumsum(evals / sum(evals))
+k <- min(which(pov >= 0.9999))
+
+# Approximate sigma_obs
+# Note from class: shouldn't do it directly (like this) because computationally and memory-wise wasteful; also, less numerically stable
+# INSTEAD, we should do something like this:
+# V --> sigma_inv_hat v
+# evecs[,1:k] * (t(evecs[,1:k]) %*% evecs[,1:k]) / (evals (element-wise division by eigenvals))
+sigma_approx <- matrix(data = 0, nrow = 82, ncol = 82)
+for (i in 1:k) {
+  sigma_approx <- sigma_approx + 1 / evals[i] * evecs[, i] %*% t(evecs[, i])
+}
+
+# Compute sigma_inv * y_obs
+sigma_star_y <- sigma_approx %*% y_obs
+
+# Compute the conditional mean of GP on the new locations.
+y_predicted <- mean_new + Sigma_cross %*% sigma_star_y
+```
+
+```{r, fig.dim=c(8, 5), fig.align='center'}
+solid_circle_index <- 19
+plot(
+  x = loc_obs, y = y_obs,
+  xlab = "s", ylab = "y(s)",
+  pch = solid_circle_index,
+  cex.lab = 1.4, cex.axis = 1.4,
+  col = jhu_color$heritageBlue,
+  frame.plot = F,
+  main = "99.99% of variation"
+)
+points(
+  x = loc_new, y = y_predicted,
+  col = jhu_color$spiritBlue
+)
+```
+
+# Look at using fewer PCs
+```{r}
+k <- min(which(pov >= 0.99))
+
+# Approximate sigma_obs
+sigma_approx <- matrix(data = 0, nrow = 82, ncol = 82)
+for (i in 1:k) {
+  sigma_approx <- sigma_approx + 1 / evals[i] * evecs[, i] %*% t(evecs[, i])
+}
+
+# Compute sigma_inv * y_obs
+sigma_star_y <- sigma_approx %*% y_obs
+
+# Compute the conditional mean of GP on the new locations.
+y_predicted_test <- mean_new + Sigma_cross %*% sigma_star_y
+
+solid_circle_index <- 19
+plot(
+  x = loc_obs, y = y_obs,
+  xlab = "s", ylab = "y(s)",
+  pch = solid_circle_index,
+  cex.lab = 1.4, cex.axis = 1.4,
+  col = jhu_color$heritageBlue,
+  frame.plot = F,
+  main = "99% of variation "
+)
+points(
+  x = loc_new, y = y_predicted_test,
+  col = jhu_color$spiritBlue
+)
+```
+
+
+## Part 2: Quantifying uncertainty in interpolation
+Use the eigen-decomposition technique to compute the conditional covariance 
+$$\textrm{Var}(\boldsymbol{y}_1 \, | \, \boldsymbol{y}_2)
+  = \boldsymbol{\Sigma}_{11} - \boldsymbol{\Sigma}_{12} \boldsymbol{\Sigma}_{22}^{-1} \boldsymbol{\Sigma}_{21},$$
+calculate 95% CI intervals of the interpolation, and plot them.
+
+```{r}
+k <- min(which(pov >= 0.99))
+
+# Approximate sigma_obs^-1
+sigma_approx <- matrix(data = 0, nrow = 82, ncol = 82)
+for (i in 1:k) {
+  sigma_approx <- sigma_approx + 1 / evals[i] * evecs[, i] %*% t(evecs[, i])
+}
+
+# Store matrix partitions
+cross_dist <- as.matrix(dist(c(loc_new, loc_obs)))
+sigma11 <- sq_exp_cov(cross_dist[1:n_new, 1:n_new], corr_range)
+sigma12 <- Sigma_cross
+sigma21 <- t(sigma12)
+sigma22 <- sq_exp_cov(cross_dist[(n_new + 1):(n_new + n_obs), (n_new + 1):(n_new + n_obs)], corr_range)
+
+# Calculate eigenvalues and eigenvectors for sigma22
+eigs <- eigen(sigma22)
+evals <- eigs$values
+evecs <- eigs$vectors
+
+# Calculate percent variance explained
+pov <- cumsum(evals / sum(evals))
+k <- min(which(pov >= 0.9999))
+
+# Approximate sigma22 inverse
+sigma22_approx_inv <- matrix(data = 0, nrow = 82, ncol = 82)
+for (i in 1:k) {
+  sigma22_approx_inv <- sigma22_approx_inv + 1 / evals[i] * evecs[, i] %*% t(evecs[, i])
+}
+
+# Calculate var(y_1 | y_2)
+cond_var <- sigma11 - sigma12 %*% sigma22_approx_inv %*% sigma21
+
+# Plot interpolated function with error bars
+library(tidyverse)
+data.frame(
+  x = c(loc_obs, loc_new),
+  y = c(y_obs, y_predicted),
+  v = c(rep(0, n_obs), diag(cond_var)),
+  type = c(rep("Observed", n_obs), rep("Predicted", n_new))
+) %>%
+  mutate(
+    ub = y + 1.96 * sqrt(v),
+    lb = y - 1.96 * sqrt(v)
+  ) %>%
+  ggplot(aes(x = x, y = y, col = type)) +
+  geom_point() +
+  geom_errorbar(aes(ymin = lb, ymax = ub), width = .01) +
+  xlab("s") +
+  ylab("y(s)") +
+  scale_color_manual(values = c("#002D72", "#68ACE5")) +
+  theme_bw() +
+  theme(legend.position = "none")
+```
+
+## Part 3: Kriging based on an alternative GP covariance function
+
+Albeit popular in certain fields, GP based on squared exponential covariance function is often considered "too smooth" for many applications.
+In particular, its smoothness is partially responsible for the extreme ill-conditioning of its covariance matrix. 
+Here we try carrying out the same interpolation task instead using a _Matern_ covariance function. 
+
+First find the definition and implementation of a Matern covariance using a command `git grep -n "Matern"`.
+
+Matern covariance with smoothness $\nu = 5/2$:
+$$k_{5/2}(r) = \left(
+  1 + \frac{\sqrt{5} r}{\ell} + \frac{5 r^2}{3 \ell^2}\right) \exp\left(- \frac{\sqrt{5} r}{\ell}
+\right)$$
+Eq (4.17) in Rasmussen and Williams.
+
+```{r}
+matern_cov <- function(dist, range) {
+  scaled_dist <- dist / range
+  return(
+    (1 + sqrt(5) * scaled_dist + 5 / 3 * scaled_dist^2)
+    * exp(- sqrt(5) * scaled_dist)
+  )
+}
+```
+
+Then use the eigen decomposition technique as before for interpolation and uncertainty quantification.
+Afterward, check the condition number of $\boldsymbol{\Sigma}_{\textrm{obs}}$ and see if you can directly compute $\boldsymbol{\Sigma}_{\textrm{obs}}^{-1} \boldsymbol{y}_{\textrm{obs}}$ using the `solve` function.
+Do we get the same answer as the one based on eigen decomposition?
+
+```{r}
+# solve(Sigma_obs, y_obs)
+```
+
+**Bonus question:** Symmetric positive-definite matrices can be inverted more quickly via the _Cholesky decomposition_ $\boldsymbol{L} \boldsymbol{L}^\intercal = \boldsymbol{A}$ than via the LU or QR decomposition. 
+<!-- The LU decomposition takes $O(2 n^3 / 3)$, QR $O(4 n^3 / 3)$, and Cholesky $O(n^3 / 3)$ operations. -->
+The Cholesky decomposition also provides the "sqrt" of covariance matrix you need to sample from multivariate Gaussians.
+(Though you might be stuck with the eigen decomposition technique if the matrix is ill-conditioned.)
+Try computing $\boldsymbol{\Sigma}_{\textrm{obs}}^{-1} \boldsymbol{y}_{\textrm{obs}}$ via `chol` and `forward/backsolve`.
