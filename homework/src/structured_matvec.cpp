@@ -11,7 +11,7 @@ NumericVector ar_precision_matvec(
 	double auto_corr_sq = pow(auto_corr, 2.); // '^' operator would not work
 
 	// Calculate return vector
-	for (int i = 0; i < n-2; ++i) {
+	for (int i = 0; i < n-1; ++i) {
 	  result[i] = (1 + auto_corr_sq) * v[i];
 	}
 	result[0] = v[0];
@@ -22,7 +22,7 @@ NumericVector ar_precision_matvec(
     result[i] = result[i] - auto_corr * v[i+1];
     result[i+1] = result[i+1] - auto_corr * v[i];
   }
-  
+
   for (int i = 0; i < n-1; ++i) {
     result[i] = result[i] / (1 - auto_corr_sq);
   }
