@@ -52,9 +52,9 @@ ar_precision_matvec_R <- function(v, auto_corr) {
   result[1] <- v[1]
   result[n] <- v[n]
   # Add contributions from the off-diagonals
-  # result[1:(n - 1)] <- result[1:(n - 1)] - auto_corr * v[2:n]
-  # result[2:n] <- result[2:n] - auto_corr * v[1:(n - 1)]
-  # result <- result / (1 - auto_corr^2)
+  result[1:(n - 1)] <- result[1:(n - 1)] - auto_corr * v[2:n]
+  result[2:n] <- result[2:n] - auto_corr * v[1:(n - 1)]
+  result <- result / (1 - auto_corr^2)
   return(result)
 }
 
