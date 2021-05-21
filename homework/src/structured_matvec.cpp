@@ -11,19 +11,19 @@ NumericVector ar_precision_matvec(
 	double auto_corr_sq = pow(auto_corr, 2.); // '^' operator would not work
 	
 	// Calculate return vector
-	result[0] += v[0];
-	result[n-1] += v[n-1];
-	for(int i = 1; i < n-1; ++i) {
-	  result[i] += (1 + auto_corr_sq) * v[i];
-	}
+	result += v;
 	
+	for (int i = 1; i < n-2; ++i) {
+	  result[i] += (1 + auto_corr_sq) * result[i];
+	}
+
   // Add contributions from the off-diagonals
-  for (int i = 0; i < n-1; ++i) {
-    result[i] += result[i] - auto_corr * v[i+1];
-    result[i+1] += result[i] - auto_corr * v[i];
-  }
+  // for (int i = 0; i < n-2; ++i) {
+  //   result[i] += result[i] - auto_corr * v[i+1];
+  //   result[i+1] += result[i+1] - auto_corr * v[i];
+  // }
   
-  result += result / (1 - auto_corr_sq);
+  // result += result / (1 - auto_corr_sq);
 	
 	return result;
 }
